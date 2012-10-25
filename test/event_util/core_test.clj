@@ -3,6 +3,15 @@
   (:require [event-util.core :as e]))
 
 (with-test
+  (defn delayed-seq->stream [coll t]
+    (reify e/EventSource
+      (e/subscribe [_ sink]
+        (future
+          (Thread/sleep t)
+          (doseq [elem coll] (e/on-value sink elem))
+          (e/on-done sink)))
+      (e/unsubscribe [_ sink] true)))
+
   (defn seq-seq [s]
     (let [sink (-> (e/seq->stream s)
                    e/stream->seq-ref)]
@@ -20,7 +29,21 @@
   (defn matching-seqs? [s1 s2]
     (every? (fn [[a b]] (= a b))
             (map vector s1 s2)))
-  
+
+  (defn twoseq-interleave [s1 s2]
+    (let [src1 (delayed-seq->stream s1 50)
+          src2 (delayed-seq->stream s2 100)
+          sink (-> (e/interleave src1 src2)
+                   e/stream->seq-ref)
+          ss2 (-> src2
+                  e/stream->seq-ref)]
+      (let [s @sink
+            ss @ss2]
+        (prn s)
+        (prn ss)
+        s)
+      ))
+
   (is (matching-seqs?
        (range 10)
        (seq-seq (range 10))))
@@ -31,4 +54,9 @@
 
   (is (matching-seqs?
        (map (partial + 1) (range 10))
-       (seq-map-seq (partial + 1) (range 10)))))
+       (seq-map-seq (partial + 1) (range 10))))
+
+  (is (matching-seqs?
+       (concat (range 10) (range 20 30))
+       (twoseq-interleave (range 10) (range 20 30))))
+  )

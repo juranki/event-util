@@ -1,60 +1,25 @@
 (ns event-util.core
-  (:refer-clojure :exclude [filter map]))
+  (:refer-clojure :exclude [filter map interleave]))
 
 (defprotocol EventSink
   (on-value [sink val])
-  (on-done  [sink])
-  (on-error [sink err]))
+  (on-done  [sink]))
 
 (defprotocol EventSource
   (subscribe   [source sink])
   (unsubscribe [source sink]))
 
-(def sink-defaults
-  {:on-value (fn [_val] true)
-   :on-done  (fn [] true)
-   :on-error (fn [err] (throw err))})
-
-(def dispathcer-defaults
-  {:on-value    (fn [sinks val]
-                  (doseq [sink @sinks] (on-value sink val)))
-   :on-done     (fn [sinks]
-                  (doseq [sink @sinks] (on-done  sink)))
-   :on-error    (fn [sinks err]
-                  (doseq [sink @sinks] (on-error sink err)))
-   :subscribe   (fn [sinks sink]
-                  (dosync (alter sinks conj sink)))
-   :unsubscribe (fn [sinks sink]
-                  (dosync (alter sinks disj sink)))})
-
-(defn make-dispatcher [fn-overrides]
-  (let [fns   (merge dispathcer-defaults fn-overrides)
-        sinks (ref #{})]
-    (reify
-
-      EventSink
-      (on-value [_ value] (apply (:on-value fns) [sinks value]))
-      (on-done  [_]       (apply (:on-done  fns) [sinks]))
-      (on-error [_ err]   (apply (:on-error fns) [sinks err]))
-
-      EventSource
-      (subscribe   [_ sink] (apply (:subscribe   fns) [sinks sink]))
-      (unsubscribe [_ sink] (apply (:unsubscribe fns) [sinks sink])))))
-
-(defn make-sink [fn-overrides]
-  (let [fns (merge sink-defaults fn-overrides)]
-    (reify EventSink
-      (on-value [sink value] (apply (:on-value fns) [value]))
-      (on-done  [sink]       (apply (:on-done fns)  []))
-      (on-error [sink err]   (apply (:on-error fns) [err])))))
+(defn simple-source [sinks-set-ref]
+  (reify EventSource
+    (subscribe   [_ sink] (dosync (alter sinks-set-ref conj sink)))
+    (unsubscribe [_ sink] (dosync (alter sinks-set-ref disj sink)))))
 
 (defn stream->seq-ref [stream]
   (let [buf (ref [])
-        rv  (promise)
-        sink (make-sink
-              {:on-value #(dosync (alter buf conj %))
-               :on-done  #(deliver rv @buf)})]
-    (subscribe stream sink)
+        rv  (promise)]
+    (subscribe stream (reify EventSink
+                        (on-value [_ val] (dosync (alter buf conj val)))
+                        (on-done  [_]     (deliver rv @buf))))
     rv))
 
 (defn seq->stream [coll]
@@ -66,19 +31,35 @@
         (on-done sink)))
     (unsubscribe [x sink] true)))
 
-(defn filter [stream pred]
-  (let [default   (:on-value dispathcer-defaults)
-        override  {:on-value (fn [sinks val]
-                               (if (apply pred [val])
-                                 (apply default [sinks val])))}
-        disp      (make-dispatcher override)]
-    (subscribe stream disp)
-    disp))
+(defn filter [source pred]
+  (let [sinks (ref #{})]
+    (subscribe source
+               (reify EventSink
+                 (on-value [_ val]
+                   (if (apply pred [val])
+                     (doseq [sink @sinks] (on-value sink val))))
+                 (on-done [_] (doseq [sink @sinks] (on-done sink)))))
+    (simple-source sinks)))
 
-(defn map [stream f]
-  (let [default   (:on-value dispathcer-defaults)
-        override  {:on-value (fn [sinks val]
-                               (apply default [sinks (apply f [val])]))}
-        disp      (make-dispatcher override)]
-    (subscribe stream disp)
-    disp))
+(defn map [source f]
+  (let [sinks (ref #{})]
+    (subscribe source
+               (reify EventSink
+                 (on-value [_ val]
+                   (let [v (apply f [val])]
+                     (doseq [sink @sinks] (on-value sink v))))
+                 (on-done [_] (doseq [sink @sinks] (on-done sink)))))
+    (simple-source sinks)))
+
+(defn interleave [& sources]
+  (let [srcs (ref (set sources))
+        sinks (ref #{})]
+    (doseq [src @srcs]
+      (subscribe src (reify EventSink
+                       (on-value [_ val]
+                         (doseq [sink @sinks] (on-value sink val)))
+                       (on-done  [_]
+                         (dosync (alter srcs disj src))
+                         (if (empty? @srcs)
+                           (doseq [sink @sinks] (on-done sink)))))))
+    (simple-source sinks)))
