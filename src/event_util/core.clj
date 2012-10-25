@@ -1,4 +1,5 @@
-(ns event-util.core)
+(ns event-util.core
+  (:refer-clojure :exclude [filter]))
 
 (defprotocol EventSink
   (on-value [sink val])
@@ -65,7 +66,7 @@
         (on-done sink)))
     (unsubscribe [x sink] true)))
 
-(defn filter [pred stream]
+(defn filter [stream pred]
   (let [default   (:on-value dispathcer-defaults)
         override  {:on-value (fn [sinks val]
                                (if (apply pred [val])

@@ -4,13 +4,13 @@
 
 (with-test
   (defn seq-seq [s]
-    (let [source (e/seq->stream s)
-          sink   (e/stream->seq-ref source)]
+    (let [sink (-> (e/seq->stream s)
+                   e/stream->seq-ref)]
       @sink))
   (defn seq-filter-seq [pred s]
-    (let [source (e/seq->stream s)
-          f      (e/filter pred source)
-          sink   (e/stream->seq-ref f)]
+    (let [sink (-> (e/seq->stream s)
+                   (e/filter pred)
+                   e/stream->seq-ref)]
       @sink))
   (defn matching-seqs? [s1 s2]
     (every? (fn [[a b]] (= a b))
