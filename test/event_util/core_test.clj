@@ -34,15 +34,8 @@
     (let [src1 (delayed-seq->stream s1 50)
           src2 (delayed-seq->stream s2 100)
           sink (-> (e/interleave src1 src2)
-                   e/stream->seq-ref)
-          ss2 (-> src2
-                  e/stream->seq-ref)]
-      (let [s @sink
-            ss @ss2]
-        (prn s)
-        (prn ss)
-        s)
-      ))
+                   e/stream->seq-ref)]
+      @sink))
 
   (is (matching-seqs?
        (range 10)
