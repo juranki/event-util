@@ -12,6 +12,11 @@
                    (e/filter pred)
                    e/stream->seq-ref)]
       @sink))
+  (defn seq-map-seq [f s]
+    (let [sink (-> (e/seq->stream s)
+                   (e/map f)
+                   e/stream->seq-ref)]
+      @sink))
   (defn matching-seqs? [s1 s2]
     (every? (fn [[a b]] (= a b))
             (map vector s1 s2)))
@@ -22,4 +27,8 @@
 
   (is (matching-seqs?
        (filter even? (range 10))
-       (seq-filter-seq even? (range 10)))))
+       (seq-filter-seq even? (range 10))))
+
+  (is (matching-seqs?
+       (map (partial + 1) (range 10))
+       (seq-map-seq (partial + 1) (range 10)))))

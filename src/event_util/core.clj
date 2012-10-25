@@ -1,5 +1,5 @@
 (ns event-util.core
-  (:refer-clojure :exclude [filter]))
+  (:refer-clojure :exclude [filter map]))
 
 (defprotocol EventSink
   (on-value [sink val])
@@ -71,6 +71,14 @@
         override  {:on-value (fn [sinks val]
                                (if (apply pred [val])
                                  (apply default [sinks val])))}
+        disp      (make-dispatcher override)]
+    (subscribe stream disp)
+    disp))
+
+(defn map [stream f]
+  (let [default   (:on-value dispathcer-defaults)
+        override  {:on-value (fn [sinks val]
+                               (apply default [sinks (apply f [val])]))}
         disp      (make-dispatcher override)]
     (subscribe stream disp)
     disp))
